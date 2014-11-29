@@ -1,0 +1,6 @@
+[package]
+
+name = "botclean"
+version = "0.0.1"
+authors = ["Zach Moazeni <zach.moazeni@gmail.com>"]
+description = "Rust solution for https://www.hackerrank.com/challenges/botclean"
