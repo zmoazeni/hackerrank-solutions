@@ -4,7 +4,17 @@ import Data.List
 import Data.Maybe
 
 type Position = (Int, Int)
-type Matrix = [(Position, Char)]
+type Entry = (Position, Char)
+type Matrix = [Entry]
+
+data Action = GoDown | GoRight | GoLeft | Clean
+
+instance Show Action where
+  show dir = case dir of
+    GoDown  -> "DOWN"
+    GoRight -> "RIGHT"
+    GoLeft  -> "LEFT"
+    Clean   -> "CLEAN"
 
 main :: IO ()
 main = do
@@ -13,21 +23,36 @@ main = do
       nextAction = determineNextAction position matrix
   --print position
   --print matrix
-  putStrLn nextAction
+  putStrLn (show nextAction)
 
-determineNextAction :: Position -> Matrix -> String
+determineNextAction :: Position -> Matrix -> Action
 determineNextAction position@(x, y) matrix = nextAction value
   where
-    currentCell = fromJust $ find (\(pos, _) -> pos == position) matrix
-    value = let (_, currentValue) = currentCell
-            in currentValue
+    value = let currentEntry = fromJust $ find (\(pos, _) -> pos == position) matrix
+                (_, currentValue) = currentEntry in currentValue
+
+    canOptimize = not $ any (\entry ->
+        dirtyCellOnCurrentRow position entry || willMissDirtyCellOnNextRow position entry
+      ) matrix
+
     nextAction v
-      | v == 'd'                = "CLEAN"
-      | x == maxIndex && even y = "DOWN"
-      | x == 0 && odd y         = "DOWN"
-      | even y                  = "RIGHT"
-      | odd y                   = "LEFT"
-      | otherwise = error "not sure what to do with matrix: " ++ (show matrix) ++ " position: " ++ (show position) ++ " value: " ++ (show v)
+      | v == dirtyValue         = Clean
+      | canOptimize             = GoDown
+      | x == maxIndex && even y = GoDown
+      | x == 0 && odd y         = GoDown
+      | even y                  = GoRight
+      | odd y                   = GoLeft
+      | otherwise = error $ "not sure what to do with matrix: " ++ (show matrix) ++ " position: " ++ (show position) ++ " value: " ++ (show v)
+
+dirtyCellOnCurrentRow :: Position -> Entry -> Bool
+dirtyCellOnCurrentRow (_, y) ((_, y'), value) = y == y' && value == dirtyValue
+
+willMissDirtyCellOnNextRow :: Position -> Entry -> Bool
+willMissDirtyCellOnNextRow (x, y) ((x', y'), value) = otherDirtyCells && (y + 1) == y' && value == dirtyValue
+  where otherDirtyCells = if odd y' then x' < x else x' > x
+
+dirtyValue :: Char
+dirtyValue = 'd'
 
 maxIndex :: Int
 maxIndex = 4
@@ -42,7 +67,6 @@ getPositionAndMatrix input =
   where getPosition line = let ints = map read (words line) :: [Int]
                                (y:x:_) = ints
                            in (x, y)
-
 
 buildMatrix :: [String] -> Matrix
 buildMatrix input = concatMap withXYIndex (withIndex input)
