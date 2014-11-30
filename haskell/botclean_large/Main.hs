@@ -22,6 +22,12 @@ instance Show Action where
     GoLeft  -> "LEFT"
     Clean   -> "CLEAN"
 
+dirtyValue :: Char
+dirtyValue = 'd'
+
+maxIndex :: Int
+maxIndex = 4
+
 main :: IO ()
 main = do
   input <- getContents
@@ -29,23 +35,15 @@ main = do
       nextAction = runReader determineNextAction environment
   putStrLn (show nextAction)
 
-findDirtyEntries :: Reader Env Matrix
-findDirtyEntries = do
-  Env {envMatrix=matrix} <- ask
-  return $ filter (\(_, v) -> v == dirtyValue) matrix
-
-findClosestEntry :: Reader Env Entry
-findClosestEntry = do
+determineNextAction :: Reader Env Action
+determineNextAction = do
+  value <- currentValue
   Env {envPosition=position} <- ask
-  dirtyEntries <- findDirtyEntries
-  let (closestEntry:_) = entriesWithCost (calculateCost position) dirtyEntries
-  return $ snd closestEntry
-
-  where
-    entriesWithCost mapper = sortBy compareCost . map mapper
-    calculateCost (x, y) entry@((x', y'), _) = let cost = (abs $ x - x') + (abs $ y - y')
-                                        in (cost, entry)
-    compareCost (cost1, _) (cost2, _) = cost1 `compare` cost2
+  closestPosition' <- closestPosition
+  let action = if value == dirtyValue
+                 then Clean
+                 else originToDestination position closestPosition'
+  return action
 
 currentValue :: Reader Env Char
 currentValue = do
@@ -56,17 +54,17 @@ currentValue = do
 
 closestPosition :: Reader Env Position
 closestPosition = do
-  (closestPosition', _) <- findClosestEntry
+  Env {envMatrix=matrix, envPosition=position} <- ask
+  let dirtyEntries = filter (\(_, v) -> v == dirtyValue) matrix
+      (_, closestEntry) = head $ entriesWithCost (calculateCost position) dirtyEntries
+      (closestPosition', _) = closestEntry
   return closestPosition'
 
-determineNextAction :: Reader Env Action
-determineNextAction = do
-  value <- currentValue
-  Env {envPosition=position} <- ask
-  closestPosition' <- closestPosition
-  if value == dirtyValue
-    then return Clean
-    else return (originToDestination position closestPosition')
+  where
+    entriesWithCost mapper = sortBy compareCost . map mapper
+    calculateCost (x, y) entry@((x', y'), _) = let cost = (abs $ x - x') + (abs $ y - y')
+                                        in (cost, entry)
+    compareCost (cost1, _) (cost2, _) = cost1 `compare` cost2
 
 originToDestination :: Position -> Position -> Action
 originToDestination origin@(x, y) destination@(x', y')
@@ -77,12 +75,6 @@ originToDestination origin@(x, y) destination@(x', y')
   where
     moveHorizontal = x /= x'
     moveVertical   = y /= y'
-
-dirtyValue :: Char
-dirtyValue = 'd'
-
-maxIndex :: Int
-maxIndex = 4
 
 getPositionAndMatrix :: String -> Env
 getPositionAndMatrix input =
