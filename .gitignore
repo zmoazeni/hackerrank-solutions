@@ -2,3 +2,7 @@ target
 .DS_Store
 .cabal-sandbox
 tmp
+*.hi
+*.o
+*.prof
+*.bin
