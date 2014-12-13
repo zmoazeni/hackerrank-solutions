@@ -6,3 +6,8 @@ tmp
 *.o
 *.prof
 *.bin
+*.aux
+*.hp
+*.ps
+cabal.sandbox.config
+dist
