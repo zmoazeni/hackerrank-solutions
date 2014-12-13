@@ -47,10 +47,10 @@ maxIndex :: Int
 maxIndex = 4
 
 maxClosest :: Int
-maxClosest = 10
+maxClosest = 15
 
 maxLookAheadDepth :: Int
-maxLookAheadDepth = 10
+maxLookAheadDepth = 4
 
 main :: IO ()
 main = do
