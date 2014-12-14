@@ -21,12 +21,13 @@ data Path = Path { getPositions :: [Position], getEntry :: Entry, getCost :: Int
 type Matrix = [Entry]
 data Action = GoUp | GoDown | GoRight | GoLeft | Clean
 data Env = Env {
-  envPath             :: [Position],
-  envEntry            :: Entry,
-  envAllDirtyEntries  :: Matrix,
-  envMatrix           :: Matrix,
-  envCurrentPosition  :: Position,
-  envVisitedPositions :: [Position]
+  envPath                 :: [Position],
+  envEntry                :: Entry,
+  envAllDirtyEntries      :: Matrix,
+  envMatrix               :: Matrix,
+  envCurrentPosition      :: Position,
+  envVisitedPositions     :: [Position],
+  envPassedDirtyPositions :: [Position]
 } deriving (Show)
 
 instance Show Action where
@@ -74,32 +75,40 @@ main = do
   environment <- getPositionAndMatrix input
 
   let
-    lookAheadPathsWithCost   = runReader lookAhead environment
-    maybeTotalCosts          = sumLookAheadCost lookAheadPathsWithCost
-    currentPosition          = envCurrentPosition environment
-    currentValue             = getValue $ envEntry environment
-    closestObscuredPosition' = runReader closestObscuredPosition environment
+    lookAheadPathsWithCost = runReader lookAhead environment
+    maybeTotalCosts        = sumLookAheadCost lookAheadPathsWithCost
+    currentPosition        = envCurrentPosition environment
+    currentValue           = getValue $ envEntry environment
+
+    nextPosition = case maybeTotalCosts of
+                     Nothing -> runReader closestObscuredPosition environment
+                     Just totalCosts -> let (_, cheapestRoute) = head totalCosts
+                                            (_:cheapestDirtyPosition:_) = cheapestRoute
+                                        in cheapestDirtyPosition
+    otherDirtyPositions = filter (/= currentPosition) $ map getPosition (envAllDirtyEntries environment)
 
     action = if currentValue == dirtyValue
                then Clean
-               else case maybeTotalCosts of
-                 Nothing -> originToDestination currentPosition closestObscuredPosition'
-                 Just totalCosts -> let (_, cheapestRoute) = head totalCosts
-                                        (_:nextPosition:_) = cheapestRoute
-                                    in originToDestination currentPosition nextPosition
-
+               else originToDestination currentPosition nextPosition
 
   putStrLn (show action)
 
   withFile fileLogPath AppendMode $ \file -> do
-    hPutStrLn file (show currentPosition)
+    let toSave = (currentPosition, otherDirtyPositions)
+    hPutStrLn file (show toSave)
 
 closestObscuredPosition :: Reader Env Position
 closestObscuredPosition = do
-  Env {envMatrix=matrix, envCurrentPosition=currentPosition, envVisitedPositions=visitedPositions} <- ask
-  let obscuredPositions = filter (\Entry{getValue=value, getPosition=position} -> value == obscuredValue && not (position `elem` visitedPositions)) matrix
-      sortedPositions   = sort $ map (\Entry{getPosition=position} -> ((calculateCost currentPosition position), position)) obscuredPositions
-  return $ snd (head sortedPositions)
+  Env {envMatrix=matrix,
+       envCurrentPosition=currentPosition,
+       envVisitedPositions=visitedPositions,
+       envPassedDirtyPositions=passedDirtyPositions} <- ask
+  let
+      sortedPositions       = sort . map (\position -> ((calculateCost currentPosition position), position))
+      obscuredPositions     = sortedPositions $ map getPosition $ filter (\Entry{getValue=value, getPosition=position} -> value == obscuredValue && not (position `elem` visitedPositions)) matrix
+      passedDirtyPositions' = sortedPositions $ filter (\position -> not $ position `elem` visitedPositions) passedDirtyPositions
+      closestPosition       = snd . head $ if null passedDirtyPositions' then obscuredPositions else passedDirtyPositions'
+  return closestPosition
 
 lookAhead :: Reader Env [Path]
 lookAhead = do
@@ -161,20 +170,31 @@ getPositionAndMatrix input = do
     dirtyEntries = filter (\Entry {getValue=v} -> v == dirtyValue) matrix
     currentEntry = fromJust $ find (\Entry {getPosition=position'} -> position == position') matrix
 
-  previousPositions <- withFile fileLogPath ReadWriteMode $ \file -> do
+  (previousPositions, passedDirtyPositions) <- withFile fileLogPath ReadWriteMode $ \file -> do
     let fileContents = (hGetContents file)
-    previousPositions <- positionLines <$> fileContents
-    return $!! previousPositions
+    previousPosAndDirtyPos <- positionLines <$> fileContents
+    return $!! previousPosAndDirtyPos
 
-  return (Env [position] currentEntry dirtyEntries matrix position previousPositions)
+  return $ Env {
+    envPath=[position],
+    envEntry=currentEntry,
+    envAllDirtyEntries=dirtyEntries,
+    envMatrix=matrix,
+    envCurrentPosition=position,
+    envVisitedPositions=previousPositions,
+    envPassedDirtyPositions=passedDirtyPositions
+  }
 
   where
     parseTwoInts line = let ints = map read (words line) :: [Int]
                             (y:x:_) = ints
                         in (x, y)
 
-    positionLines :: String -> [Position]
-    positionLines = map (\s -> read s) . lines
+    positionLines :: String -> ([Position], [Position])
+    positionLines input = let parsedLines          = map read (lines input)
+                              visitedPositions     = map fst parsedLines
+                              passedDirtyPositions = concatMap snd parsedLines
+                          in (visitedPositions, nub passedDirtyPositions)
 
 buildMatrix :: [String] -> Matrix
 buildMatrix input = concatMap withXYIndex (withIndex input)
