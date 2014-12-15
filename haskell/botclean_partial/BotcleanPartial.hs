@@ -12,6 +12,7 @@ import qualified Data.Map.Strict as M
 import System.IO
 import Data.Functor
 import Control.DeepSeq
+import Debug.Trace
 
 type Cost = Int
 type Position = (Int, Int)
@@ -26,7 +27,7 @@ data Env = Env {
   envAllDirtyEntries      :: Matrix,
   envMatrix               :: Matrix,
   envCurrentPosition      :: Position,
-  envVisitedPositions     :: [Position],
+  envKnownBlankPositions  :: [Position],
   envPassedDirtyPositions :: [Position]
 } deriving (Show)
 
@@ -56,6 +57,9 @@ dirtyValue = 'd'
 obscuredValue :: Char
 obscuredValue = 'o'
 
+blankValue :: Char
+blankValue = '-'
+
 maxIndex :: Int
 maxIndex = 4
 
@@ -79,13 +83,15 @@ main = do
     maybeTotalCosts        = sumLookAheadCost lookAheadPathsWithCost
     currentPosition        = envCurrentPosition environment
     currentValue           = getValue $ envEntry environment
+    blankPositions         = runReader allKnownBlankPositions environment
+    dirtyPositions         = runReader (allKnownDirtyPositions blankPositions) environment
+    nextObscuredPosition   = runReader closestObscuredPosition environment{envKnownBlankPositions=blankPositions, envPassedDirtyPositions=dirtyPositions}
 
     nextPosition = case maybeTotalCosts of
-                     Nothing -> runReader closestObscuredPosition environment
+                     Nothing -> nextObscuredPosition
                      Just totalCosts -> let (_, cheapestRoute) = head totalCosts
                                             (_:cheapestDirtyPosition:_) = cheapestRoute
                                         in cheapestDirtyPosition
-    otherDirtyPositions = filter (/= currentPosition) $ map getPosition (envAllDirtyEntries environment)
 
     action = if currentValue == dirtyValue
                then Clean
@@ -93,20 +99,33 @@ main = do
 
   putStrLn (show action)
 
-  withFile fileLogPath AppendMode $ \file -> do
-    let toSave = (currentPosition, otherDirtyPositions)
+  withFile fileLogPath WriteMode $ \file -> do
+    let toSave = (blankPositions, dirtyPositions)
     hPutStrLn file (show toSave)
+
+allKnownBlankPositions :: Reader Env [Position]
+allKnownBlankPositions = do
+  Env {envMatrix=matrix, envKnownBlankPositions=knownBlankPositions} <- ask
+  let visibleBlankPositions = map getPosition $ filter (\Entry{getValue=value} -> value == blankValue) matrix
+  return $ nub (knownBlankPositions ++ visibleBlankPositions)
+
+allKnownDirtyPositions :: [Position] -> Reader Env [Position]
+allKnownDirtyPositions blankPositions = do
+  Env {envMatrix=matrix, envPassedDirtyPositions=knownDirtyPositions} <- ask
+  let visibleDirty = map getPosition $ filter (\Entry{getValue=value} -> value == dirtyValue) matrix
+      knownDirtyPositions' = filter (\pos -> not $ pos `elem` blankPositions) knownDirtyPositions
+  return $ nub (knownDirtyPositions' ++ visibleDirty)
 
 closestObscuredPosition :: Reader Env Position
 closestObscuredPosition = do
   Env {envMatrix=matrix,
        envCurrentPosition=currentPosition,
-       envVisitedPositions=visitedPositions,
+       envKnownBlankPositions=blankPositions,
        envPassedDirtyPositions=passedDirtyPositions} <- ask
   let
       sortedPositions       = sort . map (\position -> ((calculateCost currentPosition position), position))
-      obscuredPositions     = sortedPositions $ map getPosition $ filter (\Entry{getValue=value, getPosition=position} -> value == obscuredValue && not (position `elem` visitedPositions)) matrix
-      passedDirtyPositions' = sortedPositions $ filter (\position -> not $ position `elem` visitedPositions) passedDirtyPositions
+      obscuredPositions     = sortedPositions $ map getPosition $ filter (\Entry{getValue=value, getPosition=position} -> value == obscuredValue && not (position `elem` blankPositions)) matrix
+      passedDirtyPositions' = sortedPositions $ filter (/= currentPosition) passedDirtyPositions
       closestPosition       = snd . head $ if null passedDirtyPositions' then obscuredPositions else passedDirtyPositions'
   return closestPosition
 
@@ -170,9 +189,10 @@ getPositionAndMatrix input = do
     dirtyEntries = filter (\Entry {getValue=v} -> v == dirtyValue) matrix
     currentEntry = fromJust $ find (\Entry {getPosition=position'} -> position == position') matrix
 
-  (previousPositions, passedDirtyPositions) <- withFile fileLogPath ReadWriteMode $ \file -> do
-    let fileContents = (hGetContents file)
-    previousPosAndDirtyPos <- positionLines <$> fileContents
+  (blankPositions, passedDirtyPositions) <- withFile fileLogPath ReadWriteMode $ \file -> do
+    fileContents <- (hGetContents file)
+    hPutStr stderr fileContents
+    let previousPosAndDirtyPos = positionLines fileContents
     return $!! previousPosAndDirtyPos
 
   return $ Env {
@@ -181,7 +201,7 @@ getPositionAndMatrix input = do
     envAllDirtyEntries=dirtyEntries,
     envMatrix=matrix,
     envCurrentPosition=position,
-    envVisitedPositions=previousPositions,
+    envKnownBlankPositions=blankPositions,
     envPassedDirtyPositions=passedDirtyPositions
   }
 
@@ -191,10 +211,9 @@ getPositionAndMatrix input = do
                         in (x, y)
 
     positionLines :: String -> ([Position], [Position])
-    positionLines input = let parsedLines          = map read (lines input)
-                              visitedPositions     = map fst parsedLines
-                              passedDirtyPositions = concatMap snd parsedLines
-                          in (visitedPositions, nub passedDirtyPositions)
+    positionLines input = let parsed = map read (lines input)
+                              empty = ([], [])
+                          in if null parsed then empty else head parsed
 
 buildMatrix :: [String] -> Matrix
 buildMatrix input = concatMap withXYIndex (withIndex input)
