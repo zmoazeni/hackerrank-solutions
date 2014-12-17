@@ -1,3 +1,4 @@
+; clojure solution to https://www.hackerrank.com/challenges/saveprincess
 (ns saveprincess.core
   (:gen-class))
 
@@ -25,8 +26,8 @@
         steps-vertical (repeat-step (- my py) up-or-down)]
         (vec (concat steps-horizontal steps-vertical))))
 
-(defn displayPathToPrincess
-  [n matrix]
+(defn display-path-to-princess
+  [matrix]
   (let [mario-coords (get-mario-coords matrix)
         princess-coords (get-princess-coords matrix)
         path (get-path-between-coords mario-coords princess-coords)]
@@ -38,4 +39,7 @@
         list-of-cells (apply concat (map-indexed
           (fn [y chars] (map-indexed (fn [x char] (Cell. [y x] char) ) chars)) grid))
         matrix (vec list-of-cells)]
-    (display-path-to-princess dimensions matrix)))
+    (display-path-to-princess matrix)))
+
+
+(if (not (System/getProperty "hasmain")) (apply -main *command-line-args*))

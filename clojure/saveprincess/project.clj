@@ -6,4 +6,5 @@
   :dependencies [[org.clojure/clojure "1.6.0"]]
   :main ^:skip-aot saveprincess.core
   :target-path "target/%s"
+  :jvm-opts ["-Dhasmain=true"]
   :profiles {:uberjar {:aot :all}})
